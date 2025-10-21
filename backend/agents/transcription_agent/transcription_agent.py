@@ -73,7 +73,7 @@ def transcribe_video(video_path: str = None, video_url: str = None, user_id: str
         print(f"Processing file: {upload_path}...")
         
         # Create a model instance
-        model = GenerativeModel("gemini-2.5-flash")
+        model = GenerativeModel("gemini-2.0-flash-exp")
         
         # Read the audio file
         with open(upload_path, "rb") as f:

@@ -14,8 +14,8 @@ nltk>=3.8.1
 scikit-learn
 pandas
 rake_nltk
-transformers
-torch
+# transformers
+# torch
 
 # Google API dependencies
 google-generativeai

@@ -12,7 +12,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # Using a valid model from the list you provided.
-model = genai.GenerativeModel("gemini-2.5-pro")
+model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 def clean_json_output(raw_output: str):
     try:

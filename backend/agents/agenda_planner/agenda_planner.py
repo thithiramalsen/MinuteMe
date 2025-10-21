@@ -1,3 +1,5 @@
+import os
+import google.generativeai as genai
 from .utils import (
     get_next_meeting_id,
     extract_keywords_rake,
@@ -5,29 +7,32 @@ from .utils import (
 )
 from lib.database import save_agenda
 from datetime import datetime
-from transformers import pipeline
 
-# 🧠 Initialize AI models once to be reused.
-# This prevents reloading large models on every function call.
-priority_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-# ✨ NEW: Add a summarization model for generating meeting titles
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+# --- Gemini setup ---
+api_key = os.getenv("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 
 def assign_priority(topic):
     """
-    Assign priority based on the semantic meaning of the topic using an AI model.
+    Assign priority using Gemini.
     """
-    print(f"🤖 Analyzing topic for priority: '{topic}'")
-    candidate_labels = ["urgent issue", "strategic discussion", "general information"]
-    result = priority_classifier(topic, candidate_labels)
-    top_label = result['labels'][0]
-
-    if "urgent" in top_label:
-        return "urgent"
-    elif "discussion" in top_label:
-        return "discussion"
-    else:
+    prompt = f"""Classify the following meeting topic as one of: "urgent", "discussion", or "info".
+Topic: "{topic}"
+Respond with only the label."""
+    try:
+        response = model.generate_content(prompt)
+        label = response.text.strip().lower()
+        if "urgent" in label:
+            return "urgent"
+        elif "discussion" in label:
+            return "discussion"
+        else:
+            return "info"
+    except Exception as e:
+        print(f"Gemini priority classification failed: {e}")
         return "info"
 
 def allocate_time(priority):
@@ -40,19 +45,20 @@ def allocate_time(priority):
 
 def generate_meeting_name_ai(text):
     """
-    Generates a concise meeting name using a summarization AI model.
+    Generates a concise meeting name using Gemini.
     """
-    # The model needs a reasonable amount of text to work with.
     if not text or len(text.strip()) < 20:
-        return "General Meeting" # Fallback for very short input
-
-    print(f"🤖 Generating meeting name with AI from topics...")
-    # Generate a summary. We ask for a very short one (3-10 words).
-    result = summarizer(text, max_length=10, min_length=3, do_sample=False)
-    
-    # Extract and clean up the title
-    title = result[0]['summary_text'].strip()
-    return title.title() # Capitalize words for a proper title
+        return "General Meeting"
+    prompt = f"""Generate a short, descriptive meeting name (3-10 words) for the following topics:
+{text}
+Respond with only the meeting name."""
+    try:
+        response = model.generate_content(prompt)
+        title = response.text.strip().replace('"', '')
+        return title.title()
+    except Exception as e:
+        print(f"Gemini meeting name generation failed: {e}")
+        return "General Meeting"
 
 def generate_agenda(user_input=None, user_id="user_placeholder_123"):
     """
@@ -86,10 +92,9 @@ def generate_agenda(user_input=None, user_id="user_placeholder_123"):
             "time_allocated": time_alloc
         })
 
-    # 4️⃣ Generate meeting name using the new AI function ✨
-    # We combine the main 'topics' to give the AI the most important context.
+    # 4️⃣ Generate meeting name using Gemini
     title_source_text = ". ".join(user_input.get("topics", []))
-    if not title_source_text.strip(): # Fallback to discussion points if no topics
+    if not title_source_text.strip():
         title_source_text = ". ".join(user_input.get("discussion_points", []))
 
     meeting_name = generate_meeting_name_ai(title_source_text)
@@ -109,8 +114,6 @@ def generate_agenda(user_input=None, user_id="user_placeholder_123"):
 
     return saved_agenda
 
-
-# ✅ Optional: allow running independently for testing
 if __name__ == "__main__":
     mock_input = {
         "topics": [

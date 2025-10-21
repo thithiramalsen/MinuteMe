@@ -83,8 +83,9 @@ def extract_and_schedule_tasks(user_id: str, minutes_id: str, schedule=True):
 
     # Use the summary from the specific minutes document as the text to process
     meeting_text = minutes_doc.get("summary", "")
-    result = extract_action_items_nlp(meeting_text)
-    print(f"🔍 Found {len(result.get('action_items', []))} potential action items using NLP.")
+    # --- MODIFIED: Use Gemini provider for action item extraction ---
+    result = run_action_item_tracker(meeting_text)
+    print(f"🔍 Found {len(result.get('action_items', []))} potential action items using {result.get('provider')}.")
 
     meeting_date = minutes_doc.get("date")
     next_meeting_date = minutes_doc.get("next_meeting_date")

@@ -1,10 +1,10 @@
 import os
 import json
 import nltk
-from transformers import pipeline
 from lib.database import save_minutes, get_latest_transcript
 from datetime import datetime, timedelta
 from bson.objectid import ObjectId
+import google.generativeai as genai
 
 # Ensure NLTK sentence tokenizer is downloaded
 try:
@@ -26,16 +26,51 @@ def load_transcript_from_db(user_id: str, transcript_id: str = None) -> str:
     print("⚠️ No transcript found in DB.")
     return ""
 
-def generate_summary(text: str) -> str:
-    """Generates a summary of the text using a local transformer model."""
-    print("Generating summary...")
-    # Using a pre-trained model for summarization
-    summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-    # The model works best on text up to 1024 tokens. We'll truncate if necessary.
-    max_chunk_length = 1024
-    summary = summarizer(text[:max_chunk_length], max_length=150, min_length=40, do_sample=False)
-    print("Summary generated.")
-    return summary[0]['summary_text']
+def generate_summary_and_points_gemini(text: str) -> dict:
+    """Generates summary, decisions, and future topics using Gemini."""
+    print("🤖 Generating summary, decisions, and future topics with Gemini...")
+    
+    # Configure Gemini if not already done (optional, but good practice)
+    if not genai.get_model("gemini-2.0-flash-exp"):
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+
+    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+    
+    prompt = f"""
+    Analyze the following meeting transcript and provide a structured JSON output.
+    The JSON object should have three keys:
+    1. "summary": A concise summary of the meeting (3-5 sentences).
+    2. "decisions": A list of key decisions made during the meeting.
+    3. "future_topics": A list of topics marked for future discussion.
+
+    If no items are found for a category, provide an empty list.
+
+    Transcript:
+    ---
+    {text}
+    ---
+
+    Respond ONLY with the JSON object.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        # Clean up the response to get valid JSON
+        cleaned_json = response.text.strip().replace("```json", "").replace("```", "")
+        result = json.loads(cleaned_json)
+        print("✅ Gemini analysis complete.")
+        return result
+    except Exception as e:
+        print(f"❌ Gemini analysis failed: {e}")
+        # Fallback to simple extraction if API fails
+        return {
+            "summary": "Summary could not be generated.",
+            "decisions": extract_key_decisions(text),
+            "future_discussion_points": extract_future_topics(text)
+        }
+
 
 def extract_key_decisions(text: str) -> list:
     """Extracts key decisions from the text using NLTK."""
@@ -77,9 +112,12 @@ def generate_minutes(user_id: str = "user_placeholder_123", transcript_id: str =
         print("Aborting: No transcript content to process.")
         return
 
-    summary = generate_summary(transcript)
-    decisions = extract_key_decisions(transcript)
-    future_topics = extract_future_topics(transcript)
+    # --- MODIFIED: Use Gemini for all text analysis ---
+    analysis_result = generate_summary_and_points_gemini(transcript)
+    summary = analysis_result.get("summary", "No summary generated.")
+    decisions = analysis_result.get("decisions", [])
+    future_topics = analysis_result.get("future_topics", [])
+
 
     # Structure the output to be saved in the 'minutes' collection
     output_data = {
