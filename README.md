@@ -163,7 +163,7 @@ npm install
 ```
 🔹 Create .env File in frontend/
 ```bash
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_dG9nZXRoZXItaGlwcG8tOTIuY2xlcmsuYWNjb3VudHMuZGV2JA
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_key
 ```
 
 🔹 Run Frontend
