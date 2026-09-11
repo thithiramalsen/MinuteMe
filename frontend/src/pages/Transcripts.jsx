@@ -62,6 +62,20 @@ function Transcripts() {
         }
     };
 
+    const handleDeleteTranscript = async (transcriptId) => {
+        if (!window.confirm("Are you sure you want to permanently delete this transcript?")) {
+            return;
+        }
+        try {
+            await api.delete(`/transcripts/${transcriptId}`);
+            setTranscripts(prev => prev.filter(t => t._id !== transcriptId));
+            setMessage("Transcript deleted successfully.");
+        } catch (error) {
+            const errorDetail = error.response?.data?.detail || "An unknown error occurred.";
+            setMessage(`❌ Error: ${errorDetail}`);
+        }
+    };
+
     if (loading) return (
         <div className="form-container">
             <h2>Transcripts</h2>
@@ -135,6 +149,13 @@ function Transcripts() {
                                         style={{ marginLeft: "8px" }}
                                     >
                                         Download Transcript
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteTranscript(transcript._id)}
+                                        className="form-submit-btn danger"
+                                        style={{ marginLeft: "auto" }}
+                                    >
+                                        Delete
                                     </button>
                                 </div>
                             </div>

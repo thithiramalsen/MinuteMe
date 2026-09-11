@@ -110,7 +110,7 @@ function Navbar({ onBrandClick }) {
         </ul>
       </div>
       <div className="user-controls">
-        <NotificationCenter />
+        {/* <NotificationCenter /> */}
         <span className={`tier-badge tier-${tier}`}>
           {tier === "premium" ? <Crown size={14} /> : null}
           {tier === "premium" ? "Premium" : "Free"}

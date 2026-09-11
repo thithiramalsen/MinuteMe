@@ -5,6 +5,11 @@ from transformers import pipeline
 from lib.database import save_minutes, get_latest_transcript
 from datetime import datetime, timedelta
 from bson.objectid import ObjectId
+from agents.action_item_tracker.ai_providers.gemini_provider import (
+    generate_summary_gemini,
+    extract_key_decisions_gemini,
+    extract_future_topics_gemini,
+)
 
 # Ensure NLTK sentence tokenizer is downloaded
 try:
@@ -27,61 +32,47 @@ def load_transcript_from_db(user_id: str, transcript_id: str = None) -> str:
     return ""
 
 def generate_summary(text: str) -> str:
-    """Generates a summary of the text using a local transformer model."""
-    print("Generating summary...")
-    # Using a pre-trained model for summarization
-    summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-    # The model works best on text up to 1024 tokens. We'll truncate if necessary.
-    max_chunk_length = 1024
-    summary = summarizer(text[:max_chunk_length], max_length=150, min_length=40, do_sample=False)
-    print("Summary generated.")
-    return summary[0]['summary_text']
+    """Generates a summary using the Gemini API."""
+    return generate_summary_gemini(text)
 
 def extract_key_decisions(text: str) -> list:
-    """Extracts key decisions from the text using NLTK."""
-    print("Extracting key decisions...")
-    decisions = []
-    # Keywords that often indicate a decision has been made
-    decision_keywords = ["we will", "we decided", "the decision is", "agreed to", "will proceed with"]
-    for sent in nltk.sent_tokenize(text):
-        if any(keyword in sent.lower() for keyword in decision_keywords):
-            decisions.append(sent.strip())
-    print(f"Found {len(decisions)} potential decisions.")
-    return decisions
+    """Extracts key decisions using the Gemini API."""
+    return extract_key_decisions_gemini(text)
 
 def extract_future_topics(text: str) -> list:
-    """Extracts potential future topics from the text using NLTK."""
-    print("Extracting future topics...")
-    future_topics = []
-    # Keywords that often indicate a future topic
-    future_keywords = ["next meeting", "discuss later", "in the future", "next time we should"]
-    for sent in nltk.sent_tokenize(text):
-        if any(keyword in sent.lower() for keyword in future_keywords):
-            future_topics.append(sent.strip())
-    print(f"Found {len(future_topics)} potential future topics.")
-    return future_topics
+    """Extracts future topics using the Gemini API."""
+    return extract_future_topics_gemini(text)
 
 def generate_minutes(user_id: str = "user_placeholder_123", transcript_id: str = None, transcript_text: str = None):
     """Main function to generate and save meeting minutes to MongoDB."""
     print("\n--- 🚀 Starting Minutes Generator ---")
     
-    transcript = ""
-    if transcript_text:
-        print("🧠 Using provided transcript text.")
-        transcript = transcript_text
-    elif transcript_id or user_id:
-        # This now reads from the database instead of a file
-        transcript = load_transcript_from_db(user_id, transcript_id)
-    
+    # Step 1: Load transcript
+    print(f"[DEBUG] Loading transcript for user: {user_id}")
+    transcript = transcript_text or load_transcript_from_db(user_id, transcript_id)
     if not transcript:
-        print("Aborting: No transcript content to process.")
+        print("[ERROR] No transcript content found. Aborting minutes generation.")
         return
 
-    summary = generate_summary(transcript)
-    decisions = extract_key_decisions(transcript)
-    future_topics = extract_future_topics(transcript)
+    print(f"[DEBUG] Transcript loaded. Length: {len(transcript)} characters.")
 
-    # Structure the output to be saved in the 'minutes' collection
+    # Step 2: Generate summary
+    print("[DEBUG] Generating summary...")
+    summary = generate_summary(transcript)
+    print(f"[DEBUG] Summary generated. Length: {len(summary)} characters.")
+
+    # Step 3: Extract key decisions
+    print("[DEBUG] Extracting key decisions...")
+    decisions = extract_key_decisions(transcript)
+    print(f"[DEBUG] Extracted {len(decisions)} decisions. Data: {decisions}")
+
+    # Step 4: Extract future topics
+    print("[DEBUG] Extracting future discussion topics...")
+    future_topics = extract_future_topics(transcript)
+    print(f"[DEBUG] Extracted {len(future_topics)} future topics. Data: {future_topics}")
+
+    # Step 5: Structure and save minutes
+    print("[DEBUG] Structuring minutes data...")
     output_data = {
         "meeting_id": f"minutes_{user_id}_{datetime.now().strftime('%Y%m%d')}",
         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -89,16 +80,15 @@ def generate_minutes(user_id: str = "user_placeholder_123", transcript_id: str =
         "summary": summary,
         "decisions": decisions,
         "future_discussion_points": future_topics,
-        "action_items": [] # The action_item_tracker will populate this later
+        "action_items": []
     }
-    print(f"📝 Prepared minutes data with {len(decisions)} decisions and {len(future_topics)} future topics.")
-
-    # Save the structured minutes to MongoDB
+    print("[DEBUG] Saving minutes to the database...")
     inserted_id = save_minutes(output_data, user_id)
-    output_data['_id'] = inserted_id # Add the ID to the returned data
+    output_data['_id'] = inserted_id
+    print(f"[DEBUG] Minutes saved with ID: {inserted_id}")
 
-    print(f"✅ Meeting minutes successfully saved to MongoDB with ID: {inserted_id}")
-    print("--- ✨ Finished Minutes Generator ---\n")
+    print(f"[DEBUG] Final minutes data being returned: {output_data}")
+    print("--- ✅ Minutes Generator Completed ---")
     return output_data
 
 if __name__ == '__main__':

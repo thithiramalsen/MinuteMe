@@ -20,6 +20,9 @@ import MinuteDetail from "./pages/MinuteDetail"; // Import the new detail page
 import ActionItems from "./pages/ActionItems";
 import History from "./pages/History";
 import Settings from "./pages/Settings";
+// --- NEW: Import custom auth pages ---
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
 // CreateAgenda is no longer needed as a separate page
 import Calendar from "./pages/Calendar"; // Import the new Calendar page
 import Transcripts from "./pages/Transcripts";
@@ -60,13 +63,14 @@ function App() {
           </header>
           <main>
             <Routes>
+              {/* --- MODIFIED: Use custom auth pages --- */}
               <Route
                 path="/sign-in/*"
-                element={<SignIn routing="path" path="/sign-in" />}
+                element={<SignInPage />}
               />
               <Route
                 path="/sign-up/*"
-                element={<SignUp routing="path" path="/sign-up" />}
+                element={<SignUpPage />}
               />
               <Route
                 path="/"

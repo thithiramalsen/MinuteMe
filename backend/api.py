@@ -22,7 +22,8 @@ from lib.database import (
     get_all_meetings_for_user,
     update_meeting,
     delete_meeting,
-    save_transcript, # <-- Import save_transcript
+    save_transcript,
+    delete_transcript, # <-- Import delete_transcript
     save_google_credentials,
     get_google_credentials,
     delete_google_credentials
@@ -56,7 +57,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # In production, restrict this to your frontend's domain
     allow_credentials=True,
-    allow_methods=["*"],
+    # --- FIX: Explicitly list the allowed methods ---
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -97,6 +99,20 @@ def run_full_automation_flow(user_id: str, meeting_id: str, video_url: str = Non
 
         # --- Final Step: Increment Quota & Notify ---
         increment_automation_cycle(meeting_id, user_id)
+        
+        # --- NEW: Prompt for Google Calendar Integration ---
+        db = get_db()
+        user_info = db.users.find_one({"user_id": user_id})
+        if user_info and user_info.get("tier") == "premium":
+            if not get_google_credentials(user_id):
+                create_notification(
+                    user_id=user_id,
+                    title="Enhance Your Workflow",
+                    message="Connect your Google Calendar to automatically schedule action items.",
+                    type="prompt_google_calendar_integration"
+                )
+                print(f"🤖 [Auto-Flow] Sent Google Calendar integration prompt to premium user {user_id}.")
+
         notifier.success()
         print(f"🤖 [Auto-Flow] Success for user {user_id}, meeting {meeting_id}")
 
@@ -258,15 +274,14 @@ async def get_events_endpoint(current_user: dict = Depends(get_current_user)):
             deadline_date = dateparser.parse(deadline)
             if deadline_date:
                 events.append({
-                    "title": f"Action: {item.get('task', 'Task')}",
+                    "title": item.get("task", "Untitled Action Item"),
                     "start": deadline_date,
                     "end": deadline_date,
                     "allDay": True,
                     "resource": {
                         "type": "action-item",
                         "owner": item.get("owner"),
-                        "status": item.get("status"),
-                        "minutes_id": item.get("minutes_id")
+                        "status": item.get("status", "pending")
                     }
                 })
 
@@ -389,10 +404,23 @@ async def get_transcripts_endpoint(current_user: dict = Depends(get_current_user
     """
     user_id = current_user.get("sub")
     db = get_db()
-    transcripts = list(db.transcripts.find({"user_id": user_id}))
+    transcripts = list(db.transcripts.find({"user_id": user_id}, sort=[("created_at", -1)]))
     for t in transcripts:
-        t["_id"] = str(t["_id"])
+        if "_id" in t:
+            t["_id"] = str(t["_id"])
     return transcripts
+
+@app.delete("/transcripts/{transcript_id}")
+async def delete_transcript_endpoint(
+    transcript_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Deletes a transcript for the authenticated user."""
+    user_id = current_user.get("sub")
+    deleted_count = delete_transcript(transcript_id, user_id)
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Transcript not found or you do not have permission to delete it.")
+    return {"message": "Transcript deleted successfully."}
 
 @app.post("/generate-minutes")
 async def generate_minutes_endpoint(request_body: dict = Body(None), current_user: dict = Depends(get_current_user)):
@@ -433,16 +461,16 @@ async def generate_action_items_endpoint(
         if not minutes_id:
             raise HTTPException(status_code=400, detail="minutes_id is required.")
         
-        # This function now returns the list of created action items
-        result = extract_and_schedule_tasks(user_id=user_id, minutes_id=minutes_id)
+        # --- MODIFIED: Capture the return value which contains the corrected items ---
+        action_items_result = extract_and_schedule_tasks(user_id=user_id, minutes_id=minutes_id)
         
-        if result is None:
-            raise HTTPException(status_code=404, detail="Failed to process action items. Minutes not found.")
+        if action_items_result is None:
+            raise HTTPException(status_code=404, detail="Failed to process action items. Minutes document may not exist.")
             
-        return result.get("action_items", []) # Return the list of action items
+        return action_items_result
     except Exception as e:
         print(f"Error generating action items: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
 @app.patch("/agenda/{agenda_id}")
@@ -769,19 +797,22 @@ async def exchange_google_auth_code(
             redirect_uri="http://localhost:5173/settings"
         )
         flow.fetch_token(code=code)
-        creds = flow.credentials
-
-        # Save credentials to the database
-        save_google_credentials(user_id, {
-            'token': creds.token,
-            'refresh_token': creds.refresh_token,
-            'token_uri': creds.token_uri,
-            'client_id': creds.client_id,
-            'client_secret': creds.client_secret,
-            'scopes': creds.scopes
-        })
+        credentials = flow.credentials
+        
+        # --- FIX: Ensure refresh_token is saved on initial exchange ---
+        creds_dict = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token, # This was missing
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        
+        save_google_credentials(user_id, creds_dict)
         return {"message": "Google Calendar connected successfully."}
     except Exception as e:
+        print(f"Error exchanging Google auth code: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to exchange code: {str(e)}")
 
 @app.get("/auth/google/status")

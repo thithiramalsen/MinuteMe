@@ -1,57 +1,67 @@
-import { useState, useEffect } from "react";
-import { useLocation, Link } from "react-router-dom"; // Import Link
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
+import { UserProfile } from "@clerk/clerk-react";
 import api from "../lib/axios";
-import { useUserRole } from "../hooks/useUserRole"; // Import the user role hook
+import { useUserRole } from "../hooks/useUserRole";
 
 function Settings() {
-    const [isConnected, setIsConnected] = useState(false);
-    const [loading, setLoading] = useState(true);
+    const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState("");
     const location = useLocation();
-    const { isPremium } = useUserRole(); // Get the user's premium status
+    const navigate = useNavigate();
+    const { isPremium } = useUserRole();
 
-    // Check connection status on load
+    // Check Google connection status on load
     useEffect(() => {
         const checkStatus = async () => {
             try {
-                setLoading(true);
-                const res = await api.get("/auth/google/status");
-                setIsConnected(res.data.is_connected);
+                setIsLoading(true);
+                const response = await api.get("/auth/google/status");
+                setIsGoogleConnected(response.data.is_connected);
             } catch (error) {
                 setMessage("Could not check calendar connection status.");
             } finally {
-                setLoading(false);
+                setIsLoading(false);
             }
         };
         checkStatus();
     }, []);
 
-    // Handle the redirect back from Google
+    // Handle OAuth redirect from Google
     useEffect(() => {
-        const params = new URLSearchParams(location.search);
-        const code = params.get("code");
+        const exchangeCode = async (code) => {
+            try {
+                setMessage("Connecting to Google Calendar...");
+                await api.post("/auth/google/exchange", { code });
+                setIsGoogleConnected(true);
+                setMessage("✅ Successfully connected to Google Calendar!");
+                // Remove code from URL after exchange
+                navigate("/settings", { replace: true });
+            } catch (error) {
+                setMessage("❌ Failed to connect to Google Calendar.");
+            }
+        };
 
+        const queryParams = new URLSearchParams(location.search);
+        const code = queryParams.get("code");
         if (code) {
-            setMessage("Connecting to Google Calendar...");
-            api.post("/auth/google/exchange", { code })
-                .then(() => {
-                    setIsConnected(true);
-                    setMessage("✅ Successfully connected to Google Calendar!");
-                    // Clean the URL
-                    window.history.replaceState({}, document.title, "/settings");
-                })
-                .catch(() => {
-                    setMessage("❌ Failed to connect to Google Calendar.");
-                });
+            exchangeCode(code);
         }
-    }, [location]);
+    }, [location, navigate]);
 
     const handleConnect = async () => {
+        if (!isPremium) {
+            alert("Google Calendar integration is a premium feature.");
+            navigate("/upgrade");
+            return;
+        }
         try {
-            const res = await api.get("/auth/google/url");
-            window.location.href = res.data.authorization_url;
+            const response = await api.get("/auth/google/url");
+            window.location.href = response.data.authorization_url;
         } catch (error) {
-            setMessage("Could not initiate connection. Please try again.");
+            console.error("Failed to get Google auth URL:", error);
+            alert("Could not start Google connection process. Please try again.");
         }
     };
 
@@ -59,7 +69,7 @@ function Settings() {
         if (window.confirm("Are you sure you want to disconnect your Google Calendar?")) {
             try {
                 await api.post("/auth/google/disconnect");
-                setIsConnected(false);
+                setIsGoogleConnected(false);
                 setMessage("Google Calendar has been disconnected.");
             } catch (error) {
                 setMessage("Failed to disconnect. Please try again.");
@@ -68,38 +78,38 @@ function Settings() {
     };
 
     return (
-        <div className="form-container">
-            <div className="page-header">
-                <h2>Settings</h2>
-                <p className="subtitle">Manage your application settings and integrations.</p>
-            </div>
-
+        <div className="settings-container">
+            <h1>Settings</h1>
+            
             {message && <div className="message-banner">{message}</div>}
 
             <div className="card">
-                <h3>Integrations</h3>
-                <div className="integration-item">
-                    <h4>Google Calendar</h4>
-                    <p>Connect your Google Calendar to automatically schedule action items.</p>
-                    
-                    {/* --- MODIFIED: Conditional UI based on premium status --- */}
-                    {!isPremium ? (
-                        <div className="upgrade-prompt" style={{textAlign: 'left', padding: '1rem'}}>
-                            <span>This is a Premium feature.</span>
-                            <Link to="/upgrade" className="upgrade-link">Upgrade to connect</Link>
-                        </div>
-                    ) : loading ? (
-                        <div className="loader"></div>
-                    ) : isConnected ? (
-                        <button className="danger" onClick={handleDisconnect}>
-                            Disconnect Calendar
-                        </button>
-                    ) : (
-                        <button className="primary-action-btn" onClick={handleConnect}>
-                            Connect Google Calendar
-                        </button>
-                    )}
+                <h2>Integrations</h2>
+                <div className="integration-row">
+                    <div className="integration-info">
+                        <h3>Google Calendar</h3>
+                        <p>Automatically schedule action items in your calendar.</p>
+                        {!isPremium && <p className="premium-tag">This is a premium feature.</p>}
+                    </div>
+                    <div className="integration-action">
+                        {isLoading ? (
+                            <p>Loading...</p>
+                        ) : isGoogleConnected ? (
+                            <button onClick={handleDisconnect} className="secondary-action-btn danger">
+                                Disconnect
+                            </button>
+                        ) : (
+                            <button onClick={handleConnect} className="primary-action-btn" disabled={!isPremium}>
+                                Connect
+                            </button>
+                        )}
+                    </div>
                 </div>
+            </div>
+
+            <div className="card">
+                <h2>Profile Management</h2>
+                <UserProfile routing="path" path="/settings" />
             </div>
         </div>
     );

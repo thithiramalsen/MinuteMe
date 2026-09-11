@@ -1,0 +1,14 @@
+# Local env files
+.env
+backend/.env
+
+# Python
+__pycache__/
+.venv/
+
+# Node
+node_modules/
+
+# Secrets or tokens
+token.json
+credentials.json

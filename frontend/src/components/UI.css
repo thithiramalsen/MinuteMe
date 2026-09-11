@@ -587,19 +587,28 @@
   background-color: var(--danger);
 }
 
-.automation-status-bar .status-loader {
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top: 2px solid white;
-  width: 16px;
-  height: 16px;
-  animation: spin 1s linear infinite;
-  margin-right: 0.75rem;
+/* --- NEW: Blurrable Text Styles --- */
+.blurrable-container {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
 }
 
-.automation-status-bar p {
-  margin: 0;
+.blurrable-content {
+  transition: filter 0.3s ease-in-out;
 }
+
+.blurrable-container.blurred .blurrable-content {
+  filter: blur(4px);
+  user-select: none; /* Prevents text selection when blurred */
+}
+
+.blurrable-container.blurred:hover .blurrable-content {
+  filter: blur(2px); /* Slightly less blur on hover to hint at interactivity */
+}
+/* --- End of new styles --- */
+
 
 /* Modal overlay/content should be below notification bar */
 /* --- NEW: Modal Styles --- */

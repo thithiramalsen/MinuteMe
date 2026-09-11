@@ -224,6 +224,12 @@ def delete_meeting(meeting_id: str, user_id: str):
     result = db.meetings.delete_one({"_id": ObjectId(meeting_id), "user_id": user_id})
     return result.deleted_count
 
+def delete_transcript(transcript_id: str, user_id: str):
+    """Deletes a transcript document for a specific user."""
+    db = get_db()
+    result = db.transcripts.delete_one({"_id": ObjectId(transcript_id), "user_id": user_id})
+    return result.deleted_count
+
 # --- Google OAuth Credential Storage ---
 
 def save_google_credentials(user_id: str, credentials_info: dict):

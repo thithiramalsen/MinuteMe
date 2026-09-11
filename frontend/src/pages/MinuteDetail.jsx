@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../lib/axios";
-import { format, isPast, parseISO } from "date-fns"; // Import date-fns helpers
+import { format, isValid, parseISO } from "date-fns";
+import { useAutomation } from "../context/AutomationContext";
+import BlurrableText from "../components/BlurrableText";
+// --- NEW: Import hook and icons ---
+import { useUserRole } from "../hooks/useUserRole";
+import { ExternalLink, Star } from "lucide-react";
 
 function MinuteDetail() {
     const { id } = useParams();
@@ -10,6 +15,8 @@ function MinuteDetail() {
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [step, setStep] = useState("review"); // 'review', 'generating', 'done'
+    // --- NEW: Get user tier ---
+    const { isPremium } = useUserRole();
 
     useEffect(() => {
         const fetchMinute = async () => {
@@ -93,6 +100,14 @@ function MinuteDetail() {
         navigate("/calendar");
     };
 
+    const handleGoogleCalendarClick = () => {
+        if (isPremium) {
+            window.open("https://calendar.google.com", "_blank");
+        } else {
+            navigate("/upgrade");
+        }
+    };
+
     if (loading) return (
         <div className="form-container">
             <div className="loading-container">
@@ -109,7 +124,10 @@ function MinuteDetail() {
         <div className="form-container">
             <div className="page-header">
                 <h2>Meeting of {minute.date}</h2>
-                <p className="subtitle">{minute.meeting_name || `ID: ${minute.meeting_id}`}</p>
+                {/* --- MODIFIED: Use the BlurrableText component --- */}
+                <p className="subtitle">
+                    {minute.meeting_name || <BlurrableText text={minute.meeting_id} prefix="ID:" />}
+                </p>
             </div>
             
             {message && <div className="message-banner">{message}</div>}
@@ -135,9 +153,25 @@ function MinuteDetail() {
                      <>
                         <h3>Flow Complete!</h3>
                         <p>Action items have been generated and scheduled. You can review them below or view them on your calendar.</p>
-                        <button onClick={handleViewCalendar} className="primary-action-btn">
-                            📅 View Calendar
-                        </button>
+                        {/* --- MODIFIED: Button Group --- */}
+                        <div className="button-group">
+                            <button onClick={handleViewCalendar} className="primary-action-btn">
+                                📅 View In-App Calendar
+                            </button>
+                            <button onClick={handleGoogleCalendarClick} className="secondary-action-btn">
+                                {isPremium ? (
+                                    <>
+                                        <ExternalLink size={16} style={{ marginRight: '8px' }} />
+                                        Visit Google Calendar
+                                    </>
+                                ) : (
+                                    <>
+                                        <Star size={16} style={{ marginRight: '8px' }} />
+                                        Upgrade for Sync
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     </>
                 )}
             </div>

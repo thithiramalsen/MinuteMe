@@ -136,17 +136,18 @@ pip install -r requirements.txt
 
 ```
 
-Create .env File in backend/
+Create a `.env` file in `backend/` (DO NOT commit real keys to Git).
 
 ```bash
-GOOGLE_API_KEY=AIzaSyBypfmnJgLv7c8zmd7d5_VLkvL-0_t3mpM
-OPENAI_API_KEY= ADD your api key
-MONGO_URI= ADD your database mongodb url
+# Add your real keys here — keep this file private and out of version control
+GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+MONGO_URI=YOUR_MONGO_CONNECTION_STRING
 MONGO_DB=minuteme
 
 # Clerk Authentication
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_dG9nZXRoZXItaGlwcG8tOTIuY2xlcmsuYWNjb3VudHMuZGV2JA
-CLERK_SECRET_KEY=sk_test_vRxL7jClTj6ikqHoioLOfl42ZVJDAHdITmEeGsZZBq
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=YOUR_CLERK_PUBLISHABLE_KEY
+CLERK_SECRET_KEY=YOUR_CLERK_SECRET_KEY
 ```
 Start Backend Server
 ```bash

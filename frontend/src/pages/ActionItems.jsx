@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import api from "../lib/axios";
-import { Link } from "react-router-dom";
-import { format, isPast, parseISO } from "date-fns";
+// --- NEW: Import hooks and icons ---
+import { Link, useNavigate } from "react-router-dom";
+import { useUserRole } from "../hooks/useUserRole";
+import { ExternalLink, Star } from "lucide-react";
+// --- MODIFIED: Import isValid to check for valid dates ---
+import { format, isPast, parseISO, isValid } from "date-fns";
 import "../App.css";
 
 function ActionItems() {
@@ -9,6 +13,9 @@ function ActionItems() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [filter, setFilter] = useState("all"); // all, pending, completed
+    // --- NEW: Get user tier and navigation function ---
+    const { isPremium } = useUserRole();
+    const navigate = useNavigate();
     
     useEffect(() => {
         fetchActionItems();
@@ -101,11 +108,35 @@ function ActionItems() {
     
     if (error) return <div className="error-container">{error}</div>;
 
+    const handleGoogleCalendarClick = () => {
+        if (isPremium) {
+            window.open("https://calendar.google.com", "_blank");
+        } else {
+            navigate("/upgrade");
+        }
+    };
+
     return (
         <div className="form-container">
-            <div className="page-header">
-                <h2>Action Items</h2>
-                <p className="subtitle">Track and manage tasks from your meetings</p>
+            <div className="page-header" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                    <h2>Action Items</h2>
+                    <p className="subtitle">Track and manage tasks from your meetings</p>
+                </div>
+                {/* --- NEW: Conditional Button --- */}
+                <button onClick={handleGoogleCalendarClick} className="secondary-action-btn">
+                    {isPremium ? (
+                        <>
+                            <ExternalLink size={16} style={{ marginRight: '8px' }} />
+                            Visit Google Calendar
+                        </>
+                    ) : (
+                        <>
+                            <Star size={16} style={{ marginRight: '8px' }} />
+                            Upgrade for Calendar Sync
+                        </>
+                    )}
+                </button>
             </div>
             
             <div className="filter-bar">
@@ -140,6 +171,10 @@ function ActionItems() {
                     {filteredItems.map((item) => {
                         const statusClass = getStatusBadgeClass(item.status, item.deadline);
                         
+                        // --- MODIFIED: Safely parse the date ---
+                        const deadlineDate = item.deadline ? parseISO(item.deadline) : null;
+                        const isDeadlineValid = deadlineDate && isValid(deadlineDate);
+
                         return (
                             <div key={item.id} className="card action-item-card">
                                 <div className="card-header">
@@ -158,7 +193,8 @@ function ActionItems() {
                                     <div className="detail">
                                         <span className="label">Due:</span> 
                                         <span className="value">
-                                            {item.deadline !== "TBD" ? format(new Date(item.deadline), "MMM d, yyyy") : "TBD"}
+                                            {/* --- MODIFIED: Render only if the date is valid --- */}
+                                            {isDeadlineValid ? format(deadlineDate, "MMM d, yyyy") : "TBD"}
                                         </span>
                                     </div>
                                     {item.minutes_id && (

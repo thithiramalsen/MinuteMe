@@ -1,12 +1,13 @@
 import os
-import json
 import time
 import gdown
-from google.generativeai import GenerativeModel
+import random
+import uuid
+from google.api_core.exceptions import ResourceExhausted
 import google.generativeai as genai
 from dotenv import load_dotenv
-# --- NEW: Import the specific error class ---
 from pymongo.errors import ConnectionFailure
+# --- RE-INTRODUCED: moviepy is essential for audio extraction ---
 import moviepy.editor as mp
 
 def configure_gemini():
@@ -21,15 +22,7 @@ def configure_gemini():
 
 def transcribe_video(video_path: str = None, video_url: str = None, user_id: str = "user_placeholder_123"):
     """
-    Transcribes a video file using the Gemini model, downloading it if a URL is provided.
-
-    Args:
-        video_path (str, optional): The local path to the video file.
-        video_url (str, optional): A public URL (e.g., Google Drive) to the video file.
-        user_id (str): The ID of the user to associate the transcript with.
-
-    Returns:
-        str: The generated transcript text, or None if an error occurred.
+    Transcribes a video by first extracting its audio, then uploading the audio file.
     """
     if not video_path and not video_url:
         raise ValueError("Either video_path or video_url must be provided.")
@@ -38,89 +31,84 @@ def transcribe_video(video_path: str = None, video_url: str = None, user_id: str
     is_temp_file = False
     temp_video_path = None
     temp_audio_path = None
+    uploaded_file_handle = None
 
     try:
-        # 1. Configure the Gemini API
         configure_gemini()
+        temp_dir = "data/meeting_video/temp"
+        os.makedirs(temp_dir, exist_ok=True)
 
-        # 2. Download the video if a URL is provided
         if video_url:
             print(f"Downloading video from URL: {video_url}")
-            # Define a temporary path for the downloaded file
-            temp_dir = "data/meeting_video/temp"
-            os.makedirs(temp_dir, exist_ok=True)
-            # Download video from URL
-            temp_video_path = os.path.join(temp_dir, "downloaded_video.mp4")
+            temp_video_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp4")
             gdown.download(video_url, temp_video_path, quiet=False, fuzzy=True)
-            print(f"Video downloaded to temporary path: {temp_video_path}")
+            local_video_path = temp_video_path
+            is_temp_file = True
+            print(f"Video downloaded to temporary path: {local_video_path}")
 
-            # Convert video to audio
-            print(f"Converting video to audio...")
-            temp_audio_path = os.path.join(temp_dir, "extracted_audio.mp3")
+        if not os.path.exists(local_video_path):
+            raise FileNotFoundError(f"Video file not found at {local_video_path}")
+
+        # --- HEART OF THE SYSTEM: Extract audio from the video file ---
+        print(f"Extracting audio from '{local_video_path}'...")
+        temp_audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+        with mp.VideoFileClip(local_video_path) as video_clip:
+            video_clip.audio.write_audiofile(temp_audio_path, codec='mp3')
+        print(f"Audio extracted successfully to '{temp_audio_path}'.")
+
+        # --- UPLOAD THE SMALLER AUDIO FILE, NOT THE VIDEO ---
+        print(f"Uploading audio file to Gemini: {temp_audio_path}")
+        uploaded_file_handle = genai.upload_file(path=temp_audio_path, display_name="meeting_audio")
+        print(f"File uploaded successfully. URI: {uploaded_file_handle.uri}")
+
+        print(f"Waiting for file '{uploaded_file_handle.name}' to be processed...")
+        while uploaded_file_handle.state.name == "PROCESSING":
+            time.sleep(5) # Check every 5 seconds
+            uploaded_file_handle = genai.get_file(uploaded_file_handle.name)
+        
+        if uploaded_file_handle.state.name == "FAILED":
+            raise ValueError(f"Audio file processing failed: {uploaded_file_handle.state.name}")
+        
+        print("File is now ACTIVE and ready for use.")
+
+        prompt = "Transcribe the following audio. Provide a clean, verbatim transcript. Include speaker labels (diarization) if possible, like 'Speaker 1:' and 'Speaker 2:'."
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        max_retries = 3
+        base_delay = 5
+
+        for attempt in range(max_retries):
             try:
-                video_clip = mp.VideoFileClip(temp_video_path)
-                video_clip.audio.write_audiofile(temp_audio_path, codec='mp3')
-                video_clip.close()
-                print(f"Audio extracted to: {temp_audio_path}")
-                upload_path = temp_audio_path
+                print(f"Attempt {attempt + 1}/{max_retries}: Generating transcription...")
+                response = model.generate_content([prompt, uploaded_file_handle])
+                transcript = response.text.strip()
+                print("\n--- Transcription Successful ---")
+                return transcript
+            except ResourceExhausted as e:
+                print(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"Rate limit exceeded. Retrying in {wait_time:.2f} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    print("Max retries reached. Transcription failed.")
+                    raise e
             except Exception as e:
-                print(f"Audio extraction failed: {e}. Falling back to video upload.")
-                upload_path = temp_video_path
-        else:
-            upload_path = local_video_path
+                print(f"An unexpected error occurred during content generation: {e}")
+                raise e
 
-        # 3. Process the audio file with Gemini
-        print(f"Processing file: {upload_path}...")
+    finally:
+        # --- ROBUST CLEANUP ---
+        if uploaded_file_handle:
+            print(f"Cleaning up uploaded file from Gemini: {uploaded_file_handle.name}")
+            genai.delete_file(uploaded_file_handle.name)
         
-        # Create a model instance
-        model = GenerativeModel("gemini-2.5-flash")
-        
-        # Read the audio file
-        with open(upload_path, "rb") as f:
-            audio_data = f.read()
-        
-        # Create the prompt for transcription
-        prompt = "Transcribe the audio from this file. Include speaker labels (diarization) for each part of the conversation. For example: 'Speaker 1: Hello there. Speaker 2: Hi, how are you?'"
-        
-        # Generate the transcription
-        response = model.generate_content([
-            prompt,
-            {"mime_type": "audio/mp3", "data": audio_data}
-        ])
-        
-        # Extract the transcript
-        transcript = response.text
-        print("\n--- Transcription ---")
-        print(transcript)
-        print("---------------------\n")
-
-        print("Cleaning up temporary files...")
-        # Clean up temporary files
-        if temp_video_path and os.path.exists(temp_video_path):
+        if is_temp_file and temp_video_path and os.path.exists(temp_video_path):
             os.remove(temp_video_path)
+            print(f"Deleted temporary video file: {temp_video_path}")
+            
         if temp_audio_path and os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
-        print("--- ✅ Finished Transcription Agent ---")
-
-        return transcript
-
-    # --- MODIFIED: More specific error handling ---
-    except ConnectionFailure as e:
-        print("\n" + "="*50)
-        print("❌ DATABASE CONNECTION FAILED")
-        print(f"   Error: {e}")
-        print("   This is a network-level error. The application could not find the MongoDB server.")
-        print("   Please check:")
-        print("   1. Your computer's internet connection.")
-        print("   2. If a firewall or VPN is blocking the connection to MongoDB Atlas.")
-        print("   3. The MONGO_URI in your backend/.env file is 100% correct.")
-        print("="*50 + "\n")
-        # Re-raise the exception so the API endpoint returns a proper 500 error
-        raise
-    except Exception as e:
-        print(f"An unexpected error occurred in transcription agent: {e}")
-        # Re-raise for the API endpoint
-        raise
+            print(f"Deleted temporary audio file: {temp_audio_path}")
 
 async def get_video_length(video_url: str) -> float:
     """

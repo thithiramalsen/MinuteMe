@@ -4,6 +4,10 @@ import moment from "moment";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import api from "../lib/axios";
 import "../App.css";
+// --- NEW: Import hooks for tier logic and navigation ---
+import { useUserRole } from "../hooks/useUserRole";
+import { useNavigate } from "react-router-dom";
+import { ExternalLink, Star } from "lucide-react";
 
 const localizer = momentLocalizer(moment);
 
@@ -43,6 +47,10 @@ function eventStyleGetter(event) {
 function Calendar() {
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [date, setDate] = useState(new Date());
+    // --- NEW: Get user tier and navigation function ---
+    const { isPremium } = useUserRole();
+    const navigate = useNavigate();
 
     useEffect(() => {
         const fetchEvents = async () => {
@@ -64,12 +72,46 @@ function Calendar() {
         fetchEvents();
     }, []);
 
+    // 2. Add a handler for when the user navigates months
+    const handleNavigate = (newDate) => {
+        setDate(newDate);
+    };
+
     if (loading) {
         return <p>Loading calendar...</p>;
     }
 
+    const handleGoogleCalendarClick = () => {
+        if (isPremium) {
+            window.open("https://calendar.google.com", "_blank");
+        } else {
+            navigate("/upgrade");
+        }
+    };
+
     return (
         <div className="calendar-container dark-calendar">
+            {/* --- NEW: Page Header with Conditional Button --- */}
+            <div className="page-header" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                    <h2>My Calendar</h2>
+                    <p className="subtitle">A unified view of your meetings and action items</p>
+                </div>
+                <button onClick={handleGoogleCalendarClick} className="secondary-action-btn">
+                    {isPremium ? (
+                        <>
+                            <ExternalLink size={16} style={{ marginRight: '8px' }} />
+                            Visit Google Calendar
+                        </>
+                    ) : (
+                        <>
+                            <Star size={16} style={{ marginRight: '8px' }} />
+                            Upgrade for Google Calendar
+                        </>
+                    )}
+                </button>
+            </div>
+
             {/* Legend */}
             <div style={{
                 marginBottom: "1em",
@@ -99,6 +141,10 @@ function Calendar() {
                 events={events}
                 startAccessor="start"
                 endAccessor="end"
+                date={date}
+                onNavigate={handleNavigate}
+                // --- NEW: Enable popup for stacked events ---
+                popup
                 style={{
                     height: "700px", // Make calendar taller
                     background: "var(--primary-dark)",
